@@ -38,6 +38,15 @@ jobs:
           npm install
           npm run build
 
+      - name: Package zip
+        run: |
+          tag="${GITHUB_REF#refs/tags/}"
+          zip -j "typst-for-obsidian-${tag}.zip" \
+            main.js \
+            manifest.json \
+            styles.css \
+            pkg/obsidian_typst_bg.wasm
+
       - name: Create release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -50,4 +59,5 @@ jobs:
             main.js \
             manifest.json \
             styles.css \
-            pkg/obsidian_typst_bg.wasm
+            pkg/obsidian_typst_bg.wasm \
+            "typst-for-obsidian-${tag}.zip"
