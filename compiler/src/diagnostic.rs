@@ -1,7 +1,10 @@
 use std::{ collections::HashMap, ops::Range };
 
 use ariadne::{ Config, FnCache, Label, Report, ReportKind };
-use typst::{ diag::{ Severity, SourceDiagnostic }, syntax::{ FileId, Span } };
+use typst::{
+    diag::{ Severity, SourceDiagnostic },
+    syntax::{ DiagSpan, DiagSpanKind, FileId },
+};
 
 use crate::file_entry::FileEntry;
 
@@ -29,11 +32,10 @@ pub fn format_diagnostic(
     let mut cache = FnCache::new(
         |id: &Id| -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
             Ok(
-                if let Some(id) = id.0 {
-                    sources.get(&id).unwrap().source().text().to_string()
-                } else {
-                    String::new()
-                }
+                id.0
+                    .and_then(|id| sources.get(&id))
+                    .map(|entry| entry.source().text().to_string())
+                    .unwrap_or_default()
             )
         }
     );
@@ -50,13 +52,18 @@ pub fn format_diagnostic(
         );
 
         if !diagnostic.hints.is_empty() {
-            report.set_help(diagnostic.hints.join("\n"));
+            let hints: Vec<String> = diagnostic
+                .hints
+                .iter()
+                .map(|hint| format!("hint: {}", hint.v))
+                .collect();
+            report.set_help(hints.join("\n"));
         }
         report.finish().write(&mut cache, &mut bytes).unwrap();
 
         bytes.push(b'\n');
         for point in &diagnostic.trace {
-            build_report(point.span, ReportKind::Advice, point.v.to_string(), sources)
+            build_report(point.span.into(), ReportKind::Advice, point.v.to_string(), sources)
                 .finish()
                 .write(&mut cache, &mut bytes)
                 .unwrap();
@@ -69,17 +76,22 @@ pub fn format_diagnostic(
 }
 
 fn build_report<'a>(
-    span: Span,
+    span: DiagSpan,
     report_kind: ReportKind<'a>,
     message: String,
     sources: &HashMap<FileId, FileEntry>
 ) -> ariadne::ReportBuilder<'a, (Id, Range<usize>)> {
     let config = Config::default().with_color(false).with_tab_width(2);
-    let id = Id(span.id());
-    let range = if let Some(id) = id.0 {
-        sources.get(&id).unwrap().source().range(span).unwrap()
-    } else {
-        0..0
+    let (id, range) = match span.get() {
+        DiagSpanKind::Detached => (Id(None), 0..0),
+        DiagSpanKind::Range { id, range } => (Id(Some(id)), range),
+        DiagSpanKind::Number { id, num, sub_range } => {
+            let range = sources
+                .get(&id)
+                .and_then(|entry| entry.source().range(num, sub_range))
+                .unwrap_or(0..0);
+            (Id(Some(id)), range)
+        }
     };
 
     Report::build(report_kind, (id, range.clone()))

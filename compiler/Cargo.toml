@@ -15,6 +15,7 @@ wasm-opt = false
 
 [dependencies]
 typst = "0.15.1"
+typst-layout = "0.15.1"
 typst-render = "0.15.1"
 typst-svg = "0.15.1"
 typst-pdf = "0.15.1"
@@ -38,7 +39,7 @@ console_error_panic_hook = "0.1.7"
 # Image handling
 fast_image_resize = "5.0.0"
 hex = "0.4"
-tiny-skia = "0.11"
+tiny-skia = "0.12"
 ariadne = "0.5.0"
 chrono = "0.4.30"
 parking_lot = "0.12.3"

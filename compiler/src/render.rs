@@ -1,6 +1,7 @@
 use fast_image_resize::{ self as fr, images::Image };
 use fr::Resizer;
-use typst::layout::PagedDocument;
+use typst::utils::Scalar;
+use typst_layout::PagedDocument;
 use wasm_bindgen::Clamped;
 use web_sys::ImageData;
 
@@ -12,7 +13,11 @@ pub fn to_image(
     size: u32,
     display: bool
 ) -> Result<ImageData, wasm_bindgen::JsValue> {
-    let mut pixmap = typst_render::render(&document.pages[0], pixel_per_pt);
+    let options = typst_render::RenderOptions {
+        pixel_per_pt: Scalar::new(pixel_per_pt as f64),
+        render_bleed: false,
+    };
+    let mut pixmap = typst_render::render(&document.pages()[0], &options);
     if !fill.is_empty() {
         let fill_bytes = hex::decode(&fill[1..]).unwrap_or_default();
         if fill_bytes.len() >= 4 {
@@ -69,7 +74,7 @@ pub fn to_image(
 }
 
 pub fn to_svg(document: PagedDocument) -> String {
-    typst_svg::svg(&document.pages[0])
+    typst_svg::svg(&document.pages()[0], &typst_svg::SvgOptions::default())
 }
 
 pub fn to_pdf(document: PagedDocument) -> Result<Vec<u8>, wasm_bindgen::JsValue> {

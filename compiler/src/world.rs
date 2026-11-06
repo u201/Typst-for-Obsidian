@@ -6,14 +6,16 @@ use send_wrapper::SendWrapper;
 use typst::{
     diag::{ EcoString, FileError, FileResult, PackageError, PackageResult },
     foundations::{ Bytes, Datetime },
-    layout::PagedDocument,
-    syntax::{ package::PackageSpec, FileId, Source, VirtualPath },
+    syntax::{
+        package::PackageSpec, FileId, RootedPath, Source, VirtualPath, VirtualRoot,
+    },
     text::{ Font, FontBook },
     utils::LazyHash,
     Library,
     LibraryExt,
     World,
 };
+use typst_layout::PagedDocument;
 use wasm_bindgen::JsValue;
 
 use crate::{ diagnostic::format_diagnostic, file_entry::FileEntry };
@@ -36,7 +38,10 @@ impl SystemWorld {
 
         Self {
             root: PathBuf::from(root),
-            main: FileId::new(None, VirtualPath::new("")),
+            main: FileId::new(RootedPath::new(
+                VirtualRoot::Project,
+                VirtualPath::new("").unwrap(),
+            )),
             library: LazyHash::new(Library::default()),
             book: LazyHash::new(book),
             fonts,
@@ -50,7 +55,9 @@ impl SystemWorld {
     pub fn compile(&mut self, text: String, path: String) -> Result<PagedDocument, JsValue> {
         self.reset();
 
-        self.main = FileId::new(None, VirtualPath::new(path));
+        let vpath = VirtualPath::new(&path)
+            .map_err(|e| JsValue::from_str(&format!("invalid path: {e}")))?;
+        self.main = FileId::new(RootedPath::new(VirtualRoot::Project, vpath));
         self.files.get_mut().insert(self.main, FileEntry::new(self.main, text));
         typst
             ::compile(self)
@@ -182,12 +189,15 @@ impl SystemWorld {
     {
         let mut map = self.files.lock();
         if !map.contains_key(&id) {
-            let path = match id.package() {
-                Some(spec) => self.prepare_package(spec)?,
-                None => self.root.clone(),
+            let path = match id.root() {
+                VirtualRoot::Package(spec) => self.prepare_package(spec)?,
+                VirtualRoot::Project => self.root.clone(),
             };
 
-            let resolved_path = id.vpath().resolve(&path).ok_or(FileError::AccessDenied)?;
+            let resolved_path = id
+                .vpath()
+                .realize(&path)
+                .map_err(|_| FileError::AccessDenied)?;
 
             let entry = if SystemWorld::is_binary_file(&resolved_path) {
                 let data = self.read_file_binary(&resolved_path)?;
@@ -243,12 +253,14 @@ impl World for SystemWorld {
         Some(self.fonts[index].clone())
     }
 
-    fn today(&self, offset: Option<i64>) -> Option<Datetime> {
+    fn today(&self, offset: Option<typst::foundations::Duration>) -> Option<Datetime> {
         let now = self.now.get_or_init(chrono::Local::now);
 
         let naive = match offset {
             None => now.naive_local(),
-            Some(o) => now.naive_utc() + chrono::Duration::hours(o),
+            Some(o) => {
+                now.naive_utc() + chrono::Duration::milliseconds((o.seconds() * 1000.0) as i64)
+            }
         };
 
         Datetime::from_ymd(
